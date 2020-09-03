@@ -27,6 +27,7 @@ import (
 	"github.com/markbates/goth/providers/openidConnect"
 	"github.com/markbates/goth/providers/twitter"
 	"github.com/markbates/goth/providers/yandex"
+	"jaccount"
 	"xorm.io/xorm"
 )
 
@@ -213,7 +214,24 @@ func createProvider(providerName, providerType, clientID, clientSecret, openIDCo
 	case "yandex":
 		// See https://tech.yandex.com/passport/doc/dg/reference/response-docpage/
 		provider = yandex.New(clientID, clientSecret, callbackURL, "login:email", "login:info", "login:avatar")
+	case "jaccount":
+		authURL := jaccount.AuthURL
+		tokenURL := jaccount.TokenURL
+		profileURL := jaccount.ProfileURL
+		if customURLMapping != nil {
+			if len(customURLMapping.AuthURL) > 0 {
+				authURL = customURLMapping.AuthURL
+			}
+			if len(customURLMapping.TokenURL) > 0 {
+				tokenURL = customURLMapping.TokenURL
+			}
+			if len(customURLMapping.ProfileURL) > 0 {
+				profileURL = customURLMapping.ProfileURL
+			}
+		}
+		provider = jaccount.NewCustomisedURL(clientID, clientSecret, callbackURL, authURL, tokenURL, profileURL, "basic")
 	}
+	
 
 	// always set the name if provider is created so we can support multiple setups of 1 provider
 	if err == nil && provider != nil {
@@ -234,7 +252,10 @@ func GetDefaultTokenURL(provider string) string {
 		return gitea.TokenURL
 	case "nextcloud":
 		return nextcloud.TokenURL
+	case "jaccount":
+		return jaccount.TokenURL
 	}
+	
 	return ""
 }
 
@@ -249,6 +270,8 @@ func GetDefaultAuthURL(provider string) string {
 		return gitea.AuthURL
 	case "nextcloud":
 		return nextcloud.AuthURL
+	case "jaccount":
+		return jaccount.AuthURL
 	}
 	return ""
 }
@@ -264,6 +287,8 @@ func GetDefaultProfileURL(provider string) string {
 		return gitea.ProfileURL
 	case "nextcloud":
 		return nextcloud.ProfileURL
+	case "jaccount":
+		return jaccount.ProfileURL
 	}
 	return ""
 }
