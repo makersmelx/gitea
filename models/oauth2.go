@@ -51,7 +51,7 @@ var OAuth2Providers = map[string]OAuth2Provider{
 			ProfileURL: oauth2.GetDefaultProfileURL("gitea"),
 		},
 	},
-	"jaccount": {Name: "jaccount", DisplayName: "jaccount", Image: "https://i.loli.net/2020/09/04/HyuYvVaJwCZ8soc.png",
+	"jaccount": {Name: "jaccount", DisplayName: "jaccount", Image: "http://vi.sjtu.edu.cn/img/base/Logo.png",
 		CustomURLMapping: &oauth2.CustomURLMapping{
 			TokenURL:   oauth2.GetDefaultTokenURL("jaccount"),
 			AuthURL:    oauth2.GetDefaultAuthURL("jaccount"),
