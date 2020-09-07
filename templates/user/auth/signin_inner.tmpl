@@ -64,7 +64,7 @@
 										alt="{{$provider.DisplayName}}{{if eq $provider.Name "openidConnect"}} ({{$key}}){{end}}"
 										title="{{$provider.DisplayName}}{{if eq $provider.Name "openidConnect"}} ({{$key}}){{end}}"
 										class="{{$provider.Name}}"
-										src="{{AppSubUrl}}{{$provider.Image}}"
+										src="{{if eq $provider.Name "jaccount"}} {{$provider.Image}} {{else}} {{AppSubUrl}}{{$provider.Image}}{{end}}"
 										onclick="window.onOAuthLoginClick()"
 									></a>
 							{{end}}
