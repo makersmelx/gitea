@@ -946,6 +946,8 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 		LoginType:   models.LoginOAuth2,
 		LoginSource: loginSource.ID,
 		LoginName:   gothUser.(goth.User).UserID,
+		FullName:    gothUser.(goth.User).Name,
+		Location:    gothUser.(goth.User).Location,
 	}
 
 	//nolint: dupl

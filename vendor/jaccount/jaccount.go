@@ -95,12 +95,13 @@ func (p *Provider) FetchUser(session goth.Session) (goth.User, error) {
 		ExpiresAt:    sess.ExpiresAt,
 	}
 
-	response, err := p.Client().Get(p.profileURL + "?access_token=" + url.QueryEscape(sess.AccessToken))
-
 	if user.AccessToken == "" {
 		// data is not yet retrieved since accessToken is still empty
 		return user, fmt.Errorf("%s cannot get user information without accessToken", p.providerName)
 	}
+	fmt.Println(user.AccessToken)
+
+	response, err := p.Client().Get(p.profileURL + "?access_token=" + url.QueryEscape(sess.AccessToken))
 	
 	if err != nil {
 		if response != nil {
@@ -127,7 +128,6 @@ func (p *Provider) FetchUser(session goth.Session) (goth.User, error) {
 	}
 
 	err = userFromReader(bytes.NewReader(bits), &user)
-	
 	return user, err
 }
 
@@ -154,9 +154,8 @@ func newConfig(provider *Provider, authURL, tokenURL string, scopes []string) *o
 func userFromReader(r io.Reader, user *goth.User) error {
 	type Profile struct{
 		Name      string `json:"name"`
-		Email     string `json:"email"`
-		NickName  string `json:"account"`
-		ID        string `json:"id"`
+		Jaccount  string `json:"account"`
+		ID        string `json:"code"`
 	}
 	
 	type Response struct {
@@ -169,11 +168,12 @@ func userFromReader(r io.Reader, user *goth.User) error {
 		return err
 	}
 	u := info.Entities[0]
-	user.Email = u.Email
+	user.Email = fmt.Sprintf("%s@sjtu.edu.cn",u.Jaccount)
 	user.Name = u.Name
-	user.NickName = u.NickName
+	user.NickName = u.Jaccount
 	user.UserID = u.ID
-	return nil
+	user.Location = u.ID
+	return err
 }
 
 //RefreshTokenAvailable refresh token is provided by auth provider or not
