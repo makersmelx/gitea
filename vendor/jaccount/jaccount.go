@@ -9,9 +9,11 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+
 	// "strconv"
 
 	"fmt"
+
 	"github.com/markbates/goth"
 	"golang.org/x/oauth2"
 )
@@ -102,7 +104,7 @@ func (p *Provider) FetchUser(session goth.Session) (goth.User, error) {
 	fmt.Println(user.AccessToken)
 
 	response, err := p.Client().Get(p.profileURL + "?access_token=" + url.QueryEscape(sess.AccessToken))
-	
+
 	if err != nil {
 		if response != nil {
 			response.Body.Close()
@@ -152,12 +154,13 @@ func newConfig(provider *Provider, authURL, tokenURL string, scopes []string) *o
 }
 
 func userFromReader(r io.Reader, user *goth.User) error {
-	type Profile struct{
-		Name      string `json:"name"`
-		Jaccount  string `json:"account"`
-		ID        string `json:"code"`
+	type Profile struct {
+		Name     string `json:"name"`
+		Jaccount string `json:"account"`
+		ID       string `json:"id"`
+		Code     string `json:"code"`
 	}
-	
+
 	type Response struct {
 		Entities []Profile `json:"entities"`
 	}
@@ -168,11 +171,11 @@ func userFromReader(r io.Reader, user *goth.User) error {
 		return err
 	}
 	u := info.Entities[0]
-	user.Email = fmt.Sprintf("%s@sjtu.edu.cn",u.Jaccount)
+	user.Email = fmt.Sprintf("%s@sjtu.edu.cn", u.Jaccount)
 	user.Name = u.Name
 	user.NickName = u.Jaccount
 	user.UserID = u.ID
-	user.Location = u.ID
+	user.Location = u.Code
 	return err
 }
 
