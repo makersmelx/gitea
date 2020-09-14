@@ -939,15 +939,16 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 	}
 
 	u := &models.User{
-		Name:        form.UserName,
-		Email:       form.Email,
-		Passwd:      form.Password,
-		IsActive:    !setting.Service.RegisterEmailConfirm,
-		LoginType:   models.LoginOAuth2,
-		LoginSource: loginSource.ID,
-		LoginName:   gothUser.(goth.User).UserID,
-		FullName:    gothUser.(goth.User).Name,
-		Location:    gothUser.(goth.User).Location,
+		Name:                    form.UserName,
+		Email:                   form.Email,
+		Passwd:                  form.Password,
+		IsActive:                !setting.Service.RegisterEmailConfirm,
+		LoginType:               models.LoginOAuth2,
+		LoginSource:             loginSource.ID,
+		LoginName:               gothUser.(goth.User).UserID,
+		FullName:                gothUser.(goth.User).Name,
+		Location:                gothUser.(goth.User).Location,
+		AllowCreateOrganization: false,
 	}
 
 	//nolint: dupl
