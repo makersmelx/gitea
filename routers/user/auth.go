@@ -949,6 +949,7 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 		FullName:                gothUser.(goth.User).Name,
 		Location:                gothUser.(goth.User).Location,
 		AllowCreateOrganization: false,
+		IsRestricted:            true,
 	}
 
 	//nolint: dupl
