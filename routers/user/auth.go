@@ -938,6 +938,8 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 		ctx.ServerError("CreateUser", err)
 	}
 
+	fullName := fmt.Sprintf("%s%s", gothUser.(goth.User).Name, gothUser.(goth.User).Location)
+
 	u := &models.User{
 		Name:                    form.UserName,
 		Email:                   form.Email,
@@ -946,7 +948,7 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 		LoginType:               models.LoginOAuth2,
 		LoginSource:             loginSource.ID,
 		LoginName:               gothUser.(goth.User).UserID,
-		FullName:                gothUser.(goth.User).Name,
+		FullName:                fullName,
 		Location:                gothUser.(goth.User).Location,
 		AllowCreateOrganization: false,
 		IsRestricted:            true,
