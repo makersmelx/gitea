@@ -11,6 +11,8 @@ import (
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 
+	"jaccount"
+
 	uuid "github.com/google/uuid"
 	"github.com/lafriks/xormstore"
 	"github.com/markbates/goth"
@@ -27,7 +29,6 @@ import (
 	"github.com/markbates/goth/providers/openidConnect"
 	"github.com/markbates/goth/providers/twitter"
 	"github.com/markbates/goth/providers/yandex"
-	"jaccount"
 	"xorm.io/xorm"
 )
 
@@ -229,9 +230,8 @@ func createProvider(providerName, providerType, clientID, clientSecret, openIDCo
 				profileURL = customURLMapping.ProfileURL
 			}
 		}
-		provider = jaccount.NewCustomisedURL(clientID, clientSecret, callbackURL, authURL, tokenURL, profileURL, "basic")
+		provider = jaccount.NewCustomisedURL(clientID, clientSecret, callbackURL, authURL, tokenURL, profileURL, "essential")
 	}
-	
 
 	// always set the name if provider is created so we can support multiple setups of 1 provider
 	if err == nil && provider != nil {
@@ -255,7 +255,7 @@ func GetDefaultTokenURL(provider string) string {
 	case "jaccount":
 		return jaccount.TokenURL
 	}
-	
+
 	return ""
 }
 

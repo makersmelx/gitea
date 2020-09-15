@@ -101,7 +101,7 @@ func (p *Provider) FetchUser(session goth.Session) (goth.User, error) {
 		// data is not yet retrieved since accessToken is still empty
 		return user, fmt.Errorf("%s cannot get user information without accessToken", p.providerName)
 	}
-	fmt.Println(user.AccessToken)
+	// fmt.Println(user.AccessToken)
 
 	response, err := p.Client().Get(p.profileURL + "?access_token=" + url.QueryEscape(sess.AccessToken))
 
