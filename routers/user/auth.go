@@ -17,6 +17,7 @@ import (
 	"code.gitea.io/gitea/modules/base"
 	"code.gitea.io/gitea/modules/context"
 	"code.gitea.io/gitea/modules/eventsource"
+	"code.gitea.io/gitea/modules/hcaptcha"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/password"
 	"code.gitea.io/gitea/modules/recaptcha"
@@ -173,12 +174,12 @@ func SignInPost(ctx *context.Context, form auth.SignInForm) {
 	if err != nil {
 		if models.IsErrUserNotExist(err) {
 			ctx.RenderWithErr(ctx.Tr("form.username_password_incorrect"), tplSignIn, &form)
-			log.Info("Failed authentication attempt for %s from %s", form.UserName, ctx.RemoteAddr())
+			log.Info("Failed authentication attempt for %s from %s: %v", form.UserName, ctx.RemoteAddr(), err)
 		} else if models.IsErrEmailAlreadyUsed(err) {
 			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), tplSignIn, &form)
-			log.Info("Failed authentication attempt for %s from %s", form.UserName, ctx.RemoteAddr())
+			log.Info("Failed authentication attempt for %s from %s: %v", form.UserName, ctx.RemoteAddr(), err)
 		} else if models.IsErrUserProhibitLogin(err) {
-			log.Info("Failed authentication attempt for %s from %s", form.UserName, ctx.RemoteAddr())
+			log.Info("Failed authentication attempt for %s from %s: %v", form.UserName, ctx.RemoteAddr(), err)
 			ctx.Data["Title"] = ctx.Tr("auth.prohibit_login")
 			ctx.HTML(200, "user/auth/prohibit_login")
 		} else if models.IsErrUserInactive(err) {
@@ -186,7 +187,7 @@ func SignInPost(ctx *context.Context, form auth.SignInForm) {
 				ctx.Data["Title"] = ctx.Tr("auth.active_your_account")
 				ctx.HTML(200, TplActivate)
 			} else {
-				log.Info("Failed authentication attempt for %s from %s", form.UserName, ctx.RemoteAddr())
+				log.Info("Failed authentication attempt for %s from %s: %v", form.UserName, ctx.RemoteAddr(), err)
 				ctx.Data["Title"] = ctx.Tr("auth.prohibit_login")
 				ctx.HTML(200, "user/auth/prohibit_login")
 			}
@@ -569,8 +570,17 @@ func SignInOAuth(ctx *context.Context) {
 		return
 	}
 
-	err = oauth2.Auth(loginSource.Name, ctx.Req.Request, ctx.Resp)
-	if err != nil {
+	if err = oauth2.Auth(loginSource.Name, ctx.Req.Request, ctx.Resp); err != nil {
+		if strings.Contains(err.Error(), "no provider for ") {
+			if err = models.ResetOAuth2(); err != nil {
+				ctx.ServerError("SignIn", err)
+				return
+			}
+			if err = oauth2.Auth(loginSource.Name, ctx.Req.Request, ctx.Resp); err != nil {
+				ctx.ServerError("SignIn", err)
+			}
+			return
+		}
 		ctx.ServerError("SignIn", err)
 	}
 	// redirect is done in oauth2.Auth
@@ -896,14 +906,20 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 
 	if setting.Service.EnableCaptcha && setting.Service.RequireExternalRegistrationCaptcha {
 		var valid bool
+		var err error
 		switch setting.Service.CaptchaType {
 		case setting.ImageCaptcha:
 			valid = cpt.VerifyReq(ctx.Req)
 		case setting.ReCaptcha:
-			valid, _ = recaptcha.Verify(form.GRecaptchaResponse)
+			valid, err = recaptcha.Verify(ctx.Req.Context(), form.GRecaptchaResponse)
+		case setting.HCaptcha:
+			valid, err = hcaptcha.Verify(ctx.Req.Context(), form.HcaptchaResponse)
 		default:
 			ctx.ServerError("Unknown Captcha Type", fmt.Errorf("Unknown Captcha Type: %s", setting.Service.CaptchaType))
 			return
+		}
+		if err != nil {
+			log.Debug("%s", err.Error())
 		}
 
 		if !valid {
@@ -944,7 +960,7 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 		Name:                    form.UserName,
 		Email:                   form.Email,
 		Passwd:                  form.Password,
-		IsActive:                !setting.Service.RegisterEmailConfirm,
+		IsActive:                !(setting.Service.RegisterEmailConfirm || setting.Service.RegisterManualConfirm),
 		LoginType:               models.LoginOAuth2,
 		LoginSource:             loginSource.ID,
 		LoginName:               gothUser.(goth.User).UserID,
@@ -963,6 +979,9 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 		case models.IsErrEmailAlreadyUsed(err):
 			ctx.Data["Err_Email"] = true
 			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), tplLinkAccount, &form)
+		case models.IsErrEmailInvalid(err):
+			ctx.Data["Err_Email"] = true
+			ctx.RenderWithErr(ctx.Tr("form.email_invalid"), tplSignUp, &form)
 		case models.IsErrNameReserved(err):
 			ctx.Data["Err_UserName"] = true
 			ctx.RenderWithErr(ctx.Tr("user.form.name_reserved", err.(models.ErrNameReserved).Name), tplLinkAccount, &form)
@@ -1046,6 +1065,7 @@ func SignUp(ctx *context.Context) {
 	ctx.Data["RecaptchaURL"] = setting.Service.RecaptchaURL
 	ctx.Data["CaptchaType"] = setting.Service.CaptchaType
 	ctx.Data["RecaptchaSitekey"] = setting.Service.RecaptchaSitekey
+	ctx.Data["HcaptchaSitekey"] = setting.Service.HcaptchaSitekey
 	ctx.Data["PageIsSignUp"] = true
 
 	//Show Disabled Registration message if DisableRegistration or AllowOnlyExternalRegistration options are true
@@ -1064,6 +1084,7 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 	ctx.Data["RecaptchaURL"] = setting.Service.RecaptchaURL
 	ctx.Data["CaptchaType"] = setting.Service.CaptchaType
 	ctx.Data["RecaptchaSitekey"] = setting.Service.RecaptchaSitekey
+	ctx.Data["HcaptchaSitekey"] = setting.Service.HcaptchaSitekey
 	ctx.Data["PageIsSignUp"] = true
 
 	//Permission denied if DisableRegistration or AllowOnlyExternalRegistration options are true
@@ -1079,14 +1100,20 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 
 	if setting.Service.EnableCaptcha {
 		var valid bool
+		var err error
 		switch setting.Service.CaptchaType {
 		case setting.ImageCaptcha:
 			valid = cpt.VerifyReq(ctx.Req)
 		case setting.ReCaptcha:
-			valid, _ = recaptcha.Verify(form.GRecaptchaResponse)
+			valid, err = recaptcha.Verify(ctx.Req.Context(), form.GRecaptchaResponse)
+		case setting.HCaptcha:
+			valid, err = hcaptcha.Verify(ctx.Req.Context(), form.HcaptchaResponse)
 		default:
 			ctx.ServerError("Unknown Captcha Type", fmt.Errorf("Unknown Captcha Type: %s", setting.Service.CaptchaType))
 			return
+		}
+		if err != nil {
+			log.Debug("%s", err.Error())
 		}
 
 		if !valid {
@@ -1116,12 +1143,23 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 		ctx.RenderWithErr(password.BuildComplexityError(ctx), tplSignUp, &form)
 		return
 	}
+	pwned, err := password.IsPwned(ctx.Req.Context(), form.Password)
+	if pwned {
+		errMsg := ctx.Tr("auth.password_pwned")
+		if err != nil {
+			log.Error(err.Error())
+			errMsg = ctx.Tr("auth.password_pwned_err")
+		}
+		ctx.Data["Err_Password"] = true
+		ctx.RenderWithErr(errMsg, tplSignUp, &form)
+		return
+	}
 
 	u := &models.User{
 		Name:     form.UserName,
 		Email:    form.Email,
 		Passwd:   form.Password,
-		IsActive: !setting.Service.RegisterEmailConfirm,
+		IsActive: !(setting.Service.RegisterEmailConfirm || setting.Service.RegisterManualConfirm),
 	}
 	if err := models.CreateUser(u); err != nil {
 		switch {
@@ -1131,6 +1169,9 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 		case models.IsErrEmailAlreadyUsed(err):
 			ctx.Data["Err_Email"] = true
 			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), tplSignUp, &form)
+		case models.IsErrEmailInvalid(err):
+			ctx.Data["Err_Email"] = true
+			ctx.RenderWithErr(ctx.Tr("form.email_invalid"), tplSignUp, &form)
 		case models.IsErrNameReserved(err):
 			ctx.Data["Err_UserName"] = true
 			ctx.RenderWithErr(ctx.Tr("user.form.name_reserved", err.(models.ErrNameReserved).Name), tplSignUp, &form)
@@ -1177,6 +1218,8 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 // Activate render activate user page
 func Activate(ctx *context.Context) {
 	code := ctx.Query("code")
+	password := ctx.Query("password")
+
 	if len(code) == 0 {
 		ctx.Data["IsActivatePage"] = true
 		if ctx.User.IsActive {
@@ -1202,42 +1245,58 @@ func Activate(ctx *context.Context) {
 		return
 	}
 
-	// Verify code.
-	if user := models.VerifyUserActiveCode(code); user != nil {
-		user.IsActive = true
-		var err error
-		if user.Rands, err = models.GetUserSalt(); err != nil {
-			ctx.ServerError("UpdateUser", err)
-			return
-		}
-		if err := models.UpdateUserCols(user, "is_active", "rands"); err != nil {
-			if models.IsErrUserNotExist(err) {
-				ctx.Error(404)
-			} else {
-				ctx.ServerError("UpdateUser", err)
-			}
-			return
-		}
-
-		log.Trace("User activated: %s", user.Name)
-
-		if err := ctx.Session.Set("uid", user.ID); err != nil {
-			log.Error(fmt.Sprintf("Error setting uid in session: %v", err))
-		}
-		if err := ctx.Session.Set("uname", user.Name); err != nil {
-			log.Error(fmt.Sprintf("Error setting uname in session: %v", err))
-		}
-		if err := ctx.Session.Release(); err != nil {
-			log.Error("Error storing session: %v", err)
-		}
-
-		ctx.Flash.Success(ctx.Tr("auth.account_activated"))
-		ctx.Redirect(setting.AppSubURL + "/")
+	user := models.VerifyUserActiveCode(code)
+	// if code is wrong
+	if user == nil {
+		ctx.Data["IsActivateFailed"] = true
+		ctx.HTML(200, TplActivate)
 		return
 	}
 
-	ctx.Data["IsActivateFailed"] = true
-	ctx.HTML(200, TplActivate)
+	// if account is local account, verify password
+	if user.LoginSource == 0 {
+		if len(password) == 0 {
+			ctx.Data["Code"] = code
+			ctx.Data["NeedsPassword"] = true
+			ctx.HTML(200, TplActivate)
+			return
+		}
+		if !user.ValidatePassword(password) {
+			ctx.Data["IsActivateFailed"] = true
+			ctx.HTML(200, TplActivate)
+			return
+		}
+	}
+
+	user.IsActive = true
+	var err error
+	if user.Rands, err = models.GetUserSalt(); err != nil {
+		ctx.ServerError("UpdateUser", err)
+		return
+	}
+	if err := models.UpdateUserCols(user, "is_active", "rands"); err != nil {
+		if models.IsErrUserNotExist(err) {
+			ctx.Error(404)
+		} else {
+			ctx.ServerError("UpdateUser", err)
+		}
+		return
+	}
+
+	log.Trace("User activated: %s", user.Name)
+
+	if err := ctx.Session.Set("uid", user.ID); err != nil {
+		log.Error(fmt.Sprintf("Error setting uid in session: %v", err))
+	}
+	if err := ctx.Session.Set("uname", user.Name); err != nil {
+		log.Error(fmt.Sprintf("Error setting uname in session: %v", err))
+	}
+	if err := ctx.Session.Release(); err != nil {
+		log.Error("Error storing session: %v", err)
+	}
+
+	ctx.Flash.Success(ctx.Tr("auth.account_activated"))
+	ctx.Redirect(setting.AppSubURL + "/")
 }
 
 // ActivateEmail render the activate email page
@@ -1415,6 +1474,16 @@ func ResetPasswdPost(ctx *context.Context) {
 		ctx.Data["Err_Password"] = true
 		ctx.RenderWithErr(password.BuildComplexityError(ctx), tplResetPassword, nil)
 		return
+	} else if pwned, err := password.IsPwned(ctx.Req.Context(), passwd); pwned || err != nil {
+		errMsg := ctx.Tr("auth.password_pwned")
+		if err != nil {
+			log.Error(err.Error())
+			errMsg = ctx.Tr("auth.password_pwned_err")
+		}
+		ctx.Data["IsResetForm"] = true
+		ctx.Data["Err_Password"] = true
+		ctx.RenderWithErr(errMsg, tplResetPassword, nil)
+		return
 	}
 
 	// Handle two-factor
@@ -1449,7 +1518,6 @@ func ResetPasswdPost(ctx *context.Context) {
 			}
 		}
 	}
-
 	var err error
 	if u.Rands, err = models.GetUserSalt(); err != nil {
 		ctx.ServerError("UpdateUser", err)
@@ -1461,7 +1529,7 @@ func ResetPasswdPost(ctx *context.Context) {
 	}
 	u.HashPassword(passwd)
 	u.MustChangePassword = false
-	if err := models.UpdateUserCols(u, "must_change_password", "passwd", "rands", "salt"); err != nil {
+	if err := models.UpdateUserCols(u, "must_change_password", "passwd", "passwd_hash_algo", "rands", "salt"); err != nil {
 		ctx.ServerError("UpdateUser", err)
 		return
 	}
@@ -1537,7 +1605,7 @@ func MustChangePasswordPost(ctx *context.Context, cpt *captcha.Captcha, form aut
 	u.HashPassword(form.Password)
 	u.MustChangePassword = false
 
-	if err := models.UpdateUserCols(u, "must_change_password", "passwd", "salt"); err != nil {
+	if err := models.UpdateUserCols(u, "must_change_password", "passwd", "passwd_hash_algo", "salt"); err != nil {
 		ctx.ServerError("UpdateUser", err)
 		return
 	}

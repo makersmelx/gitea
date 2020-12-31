@@ -6,6 +6,8 @@
 package admin
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	"code.gitea.io/gitea/models"
@@ -17,8 +19,6 @@ import (
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/routers"
 	"code.gitea.io/gitea/services/mailer"
-
-	"github.com/unknwon/com"
 )
 
 const (
@@ -92,8 +92,9 @@ func NewUserPost(ctx *context.Context, form auth.AdminCreateUserForm) {
 	if len(form.LoginType) > 0 {
 		fields := strings.Split(form.LoginType, "-")
 		if len(fields) == 2 {
-			u.LoginType = models.LoginType(com.StrTo(fields[0]).MustInt())
-			u.LoginSource = com.StrTo(fields[1]).MustInt64()
+			lType, _ := strconv.ParseInt(fields[0], 10, 0)
+			u.LoginType = models.LoginType(lType)
+			u.LoginSource, _ = strconv.ParseInt(fields[1], 10, 64)
 			u.LoginName = form.LoginName
 		}
 	}
@@ -108,6 +109,17 @@ func NewUserPost(ctx *context.Context, form auth.AdminCreateUserForm) {
 			ctx.RenderWithErr(password.BuildComplexityError(ctx), tplUserNew, &form)
 			return
 		}
+		pwned, err := password.IsPwned(ctx.Req.Context(), form.Password)
+		if pwned {
+			ctx.Data["Err_Password"] = true
+			errMsg := ctx.Tr("auth.password_pwned")
+			if err != nil {
+				log.Error(err.Error())
+				errMsg = ctx.Tr("auth.password_pwned_err")
+			}
+			ctx.RenderWithErr(errMsg, tplUserNew, &form)
+			return
+		}
 		u.MustChangePassword = form.MustChangePassword
 	}
 	if err := models.CreateUser(u); err != nil {
@@ -118,6 +130,9 @@ func NewUserPost(ctx *context.Context, form auth.AdminCreateUserForm) {
 		case models.IsErrEmailAlreadyUsed(err):
 			ctx.Data["Err_Email"] = true
 			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), tplUserNew, &form)
+		case models.IsErrEmailInvalid(err):
+			ctx.Data["Err_Email"] = true
+			ctx.RenderWithErr(ctx.Tr("form.email_invalid"), tplUserNew, &form)
 		case models.IsErrNameReserved(err):
 			ctx.Data["Err_UserName"] = true
 			ctx.RenderWithErr(ctx.Tr("user.form.name_reserved", err.(models.ErrNameReserved).Name), tplUserNew, &form)
@@ -140,7 +155,7 @@ func NewUserPost(ctx *context.Context, form auth.AdminCreateUserForm) {
 	}
 
 	ctx.Flash.Success(ctx.Tr("admin.users.new_success", u.Name))
-	ctx.Redirect(setting.AppSubURL + "/admin/users/" + com.ToStr(u.ID))
+	ctx.Redirect(setting.AppSubURL + "/admin/users/" + fmt.Sprint(u.ID))
 }
 
 func prepareUserInfo(ctx *context.Context) *models.User {
@@ -177,6 +192,7 @@ func EditUser(ctx *context.Context) {
 	ctx.Data["PageIsAdmin"] = true
 	ctx.Data["PageIsAdminUsers"] = true
 	ctx.Data["DisableRegularOrgCreation"] = setting.Admin.DisableRegularOrgCreation
+	ctx.Data["DisableMigrations"] = setting.Repository.DisableMigrations
 
 	prepareUserInfo(ctx)
 	if ctx.Written() {
@@ -191,6 +207,7 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 	ctx.Data["Title"] = ctx.Tr("admin.users.edit_account")
 	ctx.Data["PageIsAdmin"] = true
 	ctx.Data["PageIsAdminUsers"] = true
+	ctx.Data["DisableMigrations"] = setting.Repository.DisableMigrations
 
 	u := prepareUserInfo(ctx)
 	if ctx.Written() {
@@ -204,16 +221,16 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 
 	fields := strings.Split(form.LoginType, "-")
 	if len(fields) == 2 {
-		loginType := models.LoginType(com.StrTo(fields[0]).MustInt())
-		loginSource := com.StrTo(fields[1]).MustInt64()
+		loginType, _ := strconv.ParseInt(fields[0], 10, 0)
+		loginSource, _ := strconv.ParseInt(fields[1], 10, 64)
 
 		if u.LoginSource != loginSource {
 			u.LoginSource = loginSource
-			u.LoginType = loginType
+			u.LoginType = models.LoginType(loginType)
 		}
 	}
 
-	if len(form.Password) > 0 {
+	if len(form.Password) > 0 && (u.IsLocal() || u.IsOAuth2()) {
 		var err error
 		if len(form.Password) < setting.MinPasswordLength {
 			ctx.Data["Err_Password"] = true
@@ -222,6 +239,17 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 		}
 		if !password.IsComplexEnough(form.Password) {
 			ctx.RenderWithErr(password.BuildComplexityError(ctx), tplUserEdit, &form)
+			return
+		}
+		pwned, err := password.IsPwned(ctx.Req.Context(), form.Password)
+		if pwned {
+			ctx.Data["Err_Password"] = true
+			errMsg := ctx.Tr("auth.password_pwned")
+			if err != nil {
+				log.Error(err.Error())
+				errMsg = ctx.Tr("auth.password_pwned_err")
+			}
+			ctx.RenderWithErr(errMsg, tplUserNew, &form)
 			return
 		}
 		if u.Salt, err = models.GetUserSalt(); err != nil {
@@ -255,6 +283,9 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 		if models.IsErrEmailAlreadyUsed(err) {
 			ctx.Data["Err_Email"] = true
 			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), tplUserEdit, &form)
+		} else if models.IsErrEmailInvalid(err) {
+			ctx.Data["Err_Email"] = true
+			ctx.RenderWithErr(ctx.Tr("form.email_invalid"), tplUserEdit, &form)
 		} else {
 			ctx.ServerError("UpdateUser", err)
 		}
